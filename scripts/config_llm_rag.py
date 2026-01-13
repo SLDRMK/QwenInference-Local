@@ -14,7 +14,17 @@ PROJECT_ROOT: Path = Path(__file__).resolve().parents[1]
 
 
 #
-# 大语言模型（Qwen3）相关配置
+# 大语言模型相关配置
+#
+
+# 后端类型：
+# - "transformers"：使用 ModelScope + transformers 加载 Qwen/Qwen3-0.6B（当前默认）
+# - "llama_cpp"：使用 llama.cpp（GGUF，本地量化，如 Qwen3-0.6B-Q4_K_M.gguf），适合 Mac + 低内存
+# LLM_BACKEND: str = "transformers"
+LLM_BACKEND = "llama_cpp"
+
+#
+# transformers / ModelScope 后端（Qwen3 系列）
 #
 
 # 默认使用更轻量的 Qwen3-0.6B，适合 16GB 内存的 MacBook Air M4
@@ -24,6 +34,27 @@ QWEN_MODEL_ID: str = "Qwen/Qwen3-0.6B"
 
 # 使用 ModelScope 下载 Qwen 模型时的缓存目录
 QWEN_MODEL_CACHE_DIR: Path = PROJECT_ROOT / "models" / "qwen3"
+
+#
+# llama.cpp / GGUF 后端（推荐在 Mac 上使用量化 Qwen / Qwen2.5）
+#
+
+# 举例：你可以下载 HuggingFace 上的
+#   qwen2.5-3b-instruct-q4_k_m.gguf  （来自 Qwen2.5-3B-Instruct-GGUF 仓库）
+# 放在 models/gguf/ 目录下，或根据实际文件名修改下面路径。
+LLAMA_MODEL_PATH: Path = (
+    PROJECT_ROOT
+    / "models"
+    / "gguf"
+    / "qwen2.5-3b-instruct-q4_k_m.gguf"
+)
+
+# 上下文长度（视 GGUF 模型和显存情况调整）
+LLAMA_CTX_SIZE: int = 4096
+
+# Mac 上使用 Metal 时，n_gpu_layers = -1 通常表示尽量把所有层放到 GPU；
+# 也可以根据稳定性酌情改为 0（全部 CPU）或较小的正整数。
+LLAMA_N_GPU_LAYERS: int = -1
 
 
 #

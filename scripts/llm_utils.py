@@ -147,6 +147,14 @@ def chat_completion(
         skip_special_tokens=True,
         clean_up_tokenization_spaces=True,
     )
+
+    # 在 MPS 上适当释放缓存，减缓显存/内存持续上涨的问题
+    if device == "mps" and hasattr(torch, "mps"):
+        try:  # 防御性调用，避免因不同版本 PyTorch 报错
+            torch.mps.empty_cache()
+        except Exception:
+            pass
+
     return answer.strip()
 
 

@@ -8,6 +8,8 @@ import numpy as np
 # 兼容包导入和脚本直接运行
 try:
     from .config_llm_rag import (  # type: ignore
+        LLM_BACKEND,
+        EMBEDDING_MODEL_NAME,
         RAG_CHUNKS_PATH,
         RAG_EMBEDDINGS_PATH,
     )
@@ -15,14 +17,22 @@ try:
         load_qwen_llm,
         chat_completion,
     )
+    from .llm_llama_cpp import (  # type: ignore
+        chat_completion_llama,
+    )
 except ImportError:
     from config_llm_rag import (
+        LLM_BACKEND,
+        EMBEDDING_MODEL_NAME,
         RAG_CHUNKS_PATH,
         RAG_EMBEDDINGS_PATH,
     )
     from llm_utils import (
         load_qwen_llm,
         chat_completion,
+    )
+    from llm_llama_cpp import (
+        chat_completion_llama,
     )
 
 
@@ -57,6 +67,7 @@ def _load_embeddings() -> np.ndarray:
 
 
 _GLOBAL_LLM = None
+_GLOBAL_EMBEDDER = None
 
 
 def _get_llm():
@@ -69,16 +80,22 @@ def _get_llm():
     return _GLOBAL_LLM
 
 
+def _get_embedder():
+    """
+    全局缓存 SentenceTransformer，避免每次请求都重新加载一次 embedding 模型
+    （这在 Mac 上会导致内存占用逐次增长）。
+    """
+    global _GLOBAL_EMBEDDER
+    if _GLOBAL_EMBEDDER is None:
+        from sentence_transformers import SentenceTransformer
+
+        _GLOBAL_EMBEDDER = SentenceTransformer(EMBEDDING_MODEL_NAME)
+    return _GLOBAL_EMBEDDER
+
+
 def _load_embedder():
-    # 为了避免和 build_rag_index 重复依赖，这里做一个轻量级导入
-    from sentence_transformers import SentenceTransformer
-
-    try:
-        from .config_llm_rag import EMBEDDING_MODEL_NAME  # type: ignore
-    except ImportError:
-        from config_llm_rag import EMBEDDING_MODEL_NAME
-
-    return SentenceTransformer(EMBEDDING_MODEL_NAME)
+    # 这里返回的是全局缓存的 SentenceTransformer 实例
+    return _get_embedder()
 
 
 def retrieve(
@@ -147,15 +164,24 @@ def run_rag_chat(
             "你是一个专业的中文助教。现在没有任何参考资料，请根据你自己的常识尽量简要回答，"
             "如果无法确定，请坦诚地说你不知道。"
         )
-        llm = _get_llm()
-        return chat_completion(
-            llm,
-            query,
-            system_prompt=system_prompt,
-            max_new_tokens=max_new_tokens,
-            temperature=temperature,
-            top_p=top_p,
-        )
+        if LLM_BACKEND == "llama_cpp":
+            return chat_completion_llama(
+                query,
+                system_prompt=system_prompt,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
+                top_p=top_p,
+            )
+        else:
+            llm = _get_llm()
+            return chat_completion(
+                llm,
+                query,
+                system_prompt=system_prompt,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
+                top_p=top_p,
+            )
 
     context_blocks = []
     for i, ch in enumerate(retrieved, start=1):
@@ -184,15 +210,24 @@ def run_rag_chat(
         "请基于参考资料进行作答。"
     )
 
-    llm = _get_llm()
-    answer = chat_completion(
-        llm,
-        user_message,
-        system_prompt=system_prompt,
-        max_new_tokens=max_new_tokens,
-        temperature=temperature,
-        top_p=top_p,
-    )
+    if LLM_BACKEND == "llama_cpp":
+        answer = chat_completion_llama(
+            user_message,
+            system_prompt=system_prompt,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            top_p=top_p,
+        )
+    else:
+        llm = _get_llm()
+        answer = chat_completion(
+            llm,
+            user_message,
+            system_prompt=system_prompt,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            top_p=top_p,
+        )
     return answer
 
 

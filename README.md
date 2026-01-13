@@ -1,4 +1,4 @@
-## 项目说明：本地 Qwen3 推理与 RAG 框架（MacBook Air M4）
+## 项目说明：本地 Qwen3 / llama.cpp 推理与 RAG 框架（MacBook Air M4）
 
 本目录下提供了一套在 **MacBook Air M4 16GB** 上运行的本地大模型（Qwen3 系列）推理与 RAG（检索增强生成）基础框架，代码集中放在 `scripts` 目录中，并以 `PMPP-3rd-Edition.txt` 等学习资料为例做检索问答。
 
@@ -17,6 +17,7 @@
   - `rag_chat.py`：基于已构建的 RAG 嵌入与本地 Qwen3 模型进行问答。
   - `download_docs.py`：用 Python 把 **Triton 文档**（`https://triton-lang.org/main/index.html`）和 **tilelang 文档**（GitHub `tile-ai/tilelang` 仓库下的 `docs/`）抓到本地 `docs/` 目录，作为 RAG 语料。
   - `web_server.py`：FastAPI 后端，将 `rag_chat` 暴露为 HTTP 接口 `/chat`，供前端调用。
+  - `llm_llama_cpp.py`：基于 `llama-cpp-python` 的 GGUF 模型推理封装（例如 Qwen3-0.6B-Instruct-Q4_K_M.gguf），适合在 Mac 上使用量化模型 + Metal。
 
 - **`PMPP-3rd-Edition.txt`**
   - 从教材/文档提取出的纯文本示例，用作 RAG 的初始语料。
@@ -72,11 +73,19 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 - **Qwen 模型相关**
 
 ```python
-# 默认使用的模型（ModelScope 的模型 ID），适合 16GB 内存
-QWEN_MODEL_ID = "Qwen/Qwen3-0.6B"
+# 后端类型：
+# - "transformers"：使用 ModelScope + transformers 加载 Qwen/Qwen3-0.6B（当前默认）
+# - "llama_cpp"：使用 llama.cpp（GGUF，本地量化，如 Qwen3-0.6B-Instruct-Q4_K_M.gguf）
+LLM_BACKEND = "transformers"
 
-# 模型缓存目录，会通过 ModelScope 下载到这里
+# transformers / ModelScope 后端
+QWEN_MODEL_ID = "Qwen/Qwen3-0.6B"
 QWEN_MODEL_CACHE_DIR = PROJECT_ROOT / "models" / "qwen3"
+
+# llama.cpp / GGUF 后端
+LLAMA_MODEL_PATH = PROJECT_ROOT / "models" / "gguf" / "Qwen3-0.6B-Instruct-Q4_K_M.gguf"
+LLAMA_CTX_SIZE = 4096
+LLAMA_N_GPU_LAYERS = -1
 ```
 
 如需尝试更大的 Qwen3-4B 模型，只需要将 `QWEN_MODEL_ID` 修改为对应的 ModelScope 模型名（例如 `"Qwen/Qwen3-4B-Instruct"`，以官网为准），其余代码不变。但在 16GB 内存的 MacBook Air 上可能会因显存/内存不足而失败或运行缓慢。
@@ -116,7 +125,7 @@ RAG_SOURCE_DIRS = [
 
 ### 四、设备选择与 GPU 加速（M4 / MPS）
 
-在 `llm_utils.py` 中，设备选择逻辑为：
+在 transformers 后端（`llm_utils.py`）中，设备选择逻辑为：
 
 1. 若 `torch.backends.mps.is_available()` 为 `True` → 使用 `mps`（Apple GPU，加速推理）；  
 2. 否则若 `torch.cuda.is_available()` → 使用 `cuda`；  
@@ -132,6 +141,8 @@ python -c "import torch; print(torch.backends.mps.is_available())"
 ```
 
 若输出为 `True`，说明 MPS 可用。
+
+在 llama.cpp / GGUF 后端（`llm_llama_cpp.py` + `llama-cpp-python`）下，是否使用 Metal 加速取决于本机 `llama-cpp-python` 的编译方式以及 `LLAMA_N_GPU_LAYERS` 的配置（通常 `-1` 表示尽量将所有层放到 GPU/Metal）。
 
 ---
 
@@ -233,7 +244,7 @@ python scripts/rag_chat.py --query "GPU 与 CPU 在并行处理上的区别是�
 
 ### 七、Web 前端与连续对话
 
-当前版本已经内置一个简单的本地 Web 前端，支持连续对话与推理参数调节：
+当前版本已经内置一个简单的本地 Web 前端，支持连续对话与推理参数调节（对后端是 transformers 还是 llama.cpp 透明）：
 
 1. 启动后端（FastAPI）：
    ```bash
@@ -247,7 +258,7 @@ python scripts/rag_chat.py --query "GPU 与 CPU 在并行处理上的区别是�
 
 当前版本已经提供了：
 
-- 本地 Qwen3 模型加载与推理（优先 GPU/MPS，仅用 `transformers`，尚未集成 vLLM）；  
+- 本地 Qwen3 模型加载与推理（优先 GPU/MPS，仅用 `transformers`，尚未集成 vLLM），或基于 llama.cpp 的 GGUF 量化推理；  
 - 基于教材、Triton、tilelang 等本地文档的 RAG 检索与问答；  
 - 一个简单的 Web 前端用于连续对话和参数调节；  
 - 清晰的配置与脚本结构，便于后续扩展与维护。
