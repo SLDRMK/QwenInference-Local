@@ -44,9 +44,15 @@ def _load_embeddings() -> np.ndarray:
     path = Path(RAG_EMBEDDINGS_PATH)
     if not path.exists():
         raise FileNotFoundError(f"未找到嵌入向量文件：{path}，请先运行 build_rag_index.py")
-    arr = np.load(path)
+    arr = np.load(path).astype("float32")
     if arr.ndim != 2:
         raise ValueError(f"嵌入向量文件形状异常：{arr.shape}")
+
+    # 保险起见：重新做一次 L2 归一化，并屏蔽数值警告，避免后续点积出现 inf / nan。
+    with np.errstate(divide="ignore", invalid="ignore"):
+        norms = np.linalg.norm(arr, axis=1, keepdims=True)
+        arr = np.divide(arr, norms, out=np.zeros_like(arr), where=norms > 1e-6)
+
     return arr
 
 
@@ -86,17 +92,23 @@ def retrieve(
     embeddings = _load_embeddings()
     embedder = _load_embedder()
 
-    q_emb = (
-        embedder.encode(
-            [query],
-            normalize_embeddings=True,
-            convert_to_numpy=True,
-        )
-        .astype("float32")[0]
-    )  # (dim,)
+    q_emb = embedder.encode(
+        [query],
+        normalize_embeddings=True,
+        convert_to_numpy=True,
+    ).astype("float32")[0]  # (dim,)
 
-    # 余弦相似度：由于已归一化，直接点积即可
-    scores_all = embeddings @ q_emb  # (N,)
+    # 再做一遍 L2 归一化，确保没有异常数值
+    with np.errstate(divide="ignore", invalid="ignore"):
+        q_norm = np.linalg.norm(q_emb)
+        if q_norm > 1e-6:
+            q_emb = q_emb / q_norm
+        else:
+            q_emb = np.zeros_like(q_emb)
+
+    # 余弦相似度：由于已归一化，直接点积即可；同时屏蔽底层 BLAS 的数值 warning。
+    with np.errstate(all="ignore"):
+        scores_all = embeddings @ q_emb  # (N,)
 
     if top_k <= 0:
         top_k = 5

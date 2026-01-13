@@ -13,9 +13,10 @@
     - 通过 ModelScope 下载/缓存 Qwen3 模型；
     - 自动选择设备（优先 `mps`，其次 `cuda`，最后 `cpu`）；
     - 提供 `chat_completion` 接口和一个简单 CLI 对话入口。
-  - `build_rag_index.py`：从若干 `.txt` 材料中切分段落、生成向量，并使用 FAISS 构建 RAG 检索索引。
-  - `rag_chat.py`：基于已构建的 RAG 索引与本地 Qwen3 模型进行问答。
+  - `build_rag_index.py`：从若干 `.txt` / `.md` 材料中切分段落、生成向量，并保存为 NumPy 向量矩阵，用于 RAG 检索。
+  - `rag_chat.py`：基于已构建的 RAG 嵌入与本地 Qwen3 模型进行问答。
   - `download_docs.py`：用 Python 把 **Triton 文档**（`https://triton-lang.org/main/index.html`）和 **tilelang 文档**（GitHub `tile-ai/tilelang` 仓库下的 `docs/`）抓到本地 `docs/` 目录，作为 RAG 语料。
+  - `web_server.py`：FastAPI 后端，将 `rag_chat` 暴露为 HTTP 接口 `/chat`，供前端调用。
 
 - **`PMPP-3rd-Edition.txt`**
   - 从教材/文档提取出的纯文本示例，用作 RAG 的初始语料。
@@ -23,11 +24,13 @@
 - 运行过程中会自动生成的目录与文件（首次运行后出现）：
   - **`models/qwen3/`**：通过 ModelScope 下载的 Qwen3 模型缓存目录。
   - **`rag_data/`**
-    - `faiss.index`：RAG 的向量索引文件。
+    - `embeddings.npy`：所有文本块的向量矩阵（NumPy 数组，形状约为 `num_chunks × dim`）。
     - `chunks.jsonl`：RAG 切分后的文本块（每行一个 JSON，包含 `source` 和 `text` 字段）。
   - **`docs/`**
     - `triton/`：通过 `download_docs.py` 抓取、并抽取文本后的 Triton 文档（若已执行）。
     - `tilelang/`：通过 `download_docs.py` 抓取的 tilelang 文档（若已执行）。
+  - **`web/`**
+    - `index.html`：本地前端页面（HTML+CSS+JS），通过 `scripts/web_server.py` 暴露出的 `/chat` 接口进行连续对话与参数调节。
 
 ---
 
@@ -84,7 +87,7 @@ QWEN_MODEL_CACHE_DIR = PROJECT_ROOT / "models" / "qwen3"
 EMBEDDING_MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
 RAG_DATA_DIR = PROJECT_ROOT / "rag_data"
-RAG_INDEX_PATH = RAG_DATA_DIR / "faiss.index"
+RAG_EMBEDDINGS_PATH = RAG_DATA_DIR / "embeddings.npy"
 RAG_CHUNKS_PATH = RAG_DATA_DIR / "chunks.jsonl"
 
 RAG_SOURCE_FILES = [
@@ -172,9 +175,9 @@ python scripts/build_rag_index.py
 
 1. 读取 `RAG_SOURCE_FILES` 中列出的所有 `.txt` 文件；
 2. 递归遍历 `RAG_SOURCE_DIRS`（默认是 `docs/`）下所有 `.txt` / `.md` 文件；
-2. 将每个文件按词数切分成多个小段（支持一定的重叠）；
-3. 用 `SentenceTransformer` 生成向量，并存入 FAISS 索引；
-4. 将索引写入 `rag_data/faiss.index`，并将文本块写入 `rag_data/chunks.jsonl`。
+3. 将每个文件按词数切分成多个小段（支持一定的重叠）；
+4. 用 `SentenceTransformer` 生成向量，并写入 `rag_data/embeddings.npy`；
+5. 将文本块写入 `rag_data/chunks.jsonl`。
 
 #### 3. 基于 RAG 的问答：`scripts/rag_chat.py`
 
@@ -196,8 +199,8 @@ python scripts/rag_chat.py --query "GPU 与 CPU 在并行处理上的区别是�
 
 内部流程：
 
-1. 从 `rag_data/faiss.index` 与 `rag_data/chunks.jsonl` 中加载索引与文本块；
-2. 对用户问题向量化，检索最相关的若干段落；
+1. 从 `rag_data/embeddings.npy` 与 `rag_data/chunks.jsonl` 中加载嵌入向量与文本块；
+2. 对用户问题向量化，使用向量点积（余弦相似）检索最相关的若干段落；
 3. 将这些段落作为「参考资料」，组合成 Prompt 传给本地 Qwen3 模型；
 4. 模型基于资料进行中文回答，且被要求不要胡编（缺少信息时要明确说明）。
 
@@ -228,17 +231,24 @@ python scripts/rag_chat.py --query "GPU 与 CPU 在并行处理上的区别是�
 
 ---
 
-### 七、可能的后续扩展方向（留作以后改进）
+### 七、Web 前端与连续对话
 
-- 在当前基础上增加：
-  - Web 界面（如 Gradio/FastAPI + 前端）实现浏览器内问答；
-  - 多轮对话状态管理（记忆历史对话）；
-  - 更细粒度/结构化的教材章节索引（按章节/小节组织 RAG 语料）。
-- 替换或增加更强的向量模型（如 bge-m3 等）以提高检索质量。
+当前版本已经内置一个简单的本地 Web 前端，支持连续对话与推理参数调节：
+
+1. 启动后端（FastAPI）：
+   ```bash
+   conda activate vllm
+   uvicorn scripts.web_server:app --host 127.0.0.1 --port 8000
+   ```
+2. 在浏览器中打开 `web/index.html`（本地文件即可，无需额外服务器）。  
+3. 在页面中：
+   - 左侧是对话窗口，支持多轮上下文（前端会把历史对话发给后端参与 RAG + 推理）；  
+   - 右侧可调参数：`top_k`（RAG 检索数）、`temperature`、`top_p`、`max_new_tokens`。
 
 当前版本已经提供了：
 
-- 本地 Qwen3 模型加载与推理（优先 GPU/MPS）；  
-- 基于教材文本的 RAG 检索与问答；  
+- 本地 Qwen3 模型加载与推理（优先 GPU/MPS，仅用 `transformers`，尚未集成 vLLM）；  
+- 基于教材、Triton、tilelang 等本地文档的 RAG 检索与问答；  
+- 一个简单的 Web 前端用于连续对话和参数调节；  
 - 清晰的配置与脚本结构，便于后续扩展与维护。
 
