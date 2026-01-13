@@ -1,0 +1,8 @@
+大作业/
+datasets/
+docs/
+models/
+rag_data/
+*.pdf
+*.docx
+*.pptx

@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>本地 RAG + Qwen3 对话</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #050816;
+        --bg-elevated: #0f172a;
+        --accent: #22c55e;
+        --accent-soft: rgba(34, 197, 94, 0.1);
+        --border: #1e293b;
+        --text: #e5e7eb;
+        --muted: #9ca3af;
+        --danger: #f97373;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        padding: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui,
+          sans-serif;
+        background: radial-gradient(circle at top, #1e293b 0, #020617 60%);
+        color: var(--text);
+        min-height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: stretch;
+      }
+
+      .app {
+        display: flex;
+        flex-direction: column;
+        width: min(1100px, 100vw);
+        height: 100vh;
+        padding: 16px;
+        gap: 12px;
+      }
+
+      .app-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 14px;
+        border-radius: 12px;
+        background: linear-gradient(
+          135deg,
+          rgba(15, 118, 110, 0.22),
+          rgba(37, 99, 235, 0.12)
+        );
+        border: 1px solid rgba(148, 163, 184, 0.4);
+        backdrop-filter: blur(16px);
+      }
+
+      .title {
+        font-size: 16px;
+        font-weight: 600;
+      }
+
+      .subtitle {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 2px;
+      }
+
+      .badge {
+        font-size: 11px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(148, 163, 184, 0.6);
+        background: rgba(15, 23, 42, 0.8);
+      }
+
+      .main {
+        display: grid;
+        grid-template-columns: 3fr 1fr;
+        gap: 12px;
+        flex: 1;
+        min-height: 0;
+      }
+
+      @media (max-width: 900px) {
+        .main {
+          grid-template-columns: 1fr;
+          grid-template-rows: auto auto;
+        }
+      }
+
+      .card {
+        border-radius: 14px;
+        background: radial-gradient(circle at top left, #0b1120 0, #020617 55%);
+        border: 1px solid var(--border);
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+
+      .card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 4px;
+      }
+
+      .card-title {
+        font-size: 13px;
+        font-weight: 500;
+      }
+
+      .card-body {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .chat-window {
+        flex: 1;
+        min-height: 0;
+        padding: 10px;
+        border-radius: 10px;
+        background: radial-gradient(
+          circle at top left,
+          rgba(15, 23, 42, 0.95) 0,
+          rgba(15, 23, 42, 0.98) 40%,
+          rgba(15, 23, 42, 1) 100%
+        );
+        border: 1px solid rgba(30, 64, 175, 0.5);
+        overflow-y: auto;
+        font-size: 13px;
+      }
+
+      .message {
+        margin-bottom: 10px;
+        display: flex;
+        gap: 8px;
+      }
+
+      .message-role {
+        font-size: 11px;
+        font-weight: 500;
+        padding: 1px 6px;
+        border-radius: 999px;
+        align-self: flex-start;
+      }
+
+      .role-user {
+        background: rgba(96, 165, 250, 0.18);
+        color: #bfdbfe;
+      }
+
+      .role-assistant {
+        background: rgba(34, 197, 94, 0.18);
+        color: #bbf7d0;
+      }
+
+      .message-content {
+        white-space: pre-wrap;
+        line-height: 1.5;
+        flex: 1;
+      }
+
+      .chat-input-area {
+        margin-top: 4px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .input-row {
+        display: flex;
+        gap: 6px;
+      }
+
+      textarea {
+        flex: 1;
+        border-radius: 10px;
+        padding: 8px 10px;
+        border: 1px solid var(--border);
+        background: rgba(15, 23, 42, 0.95);
+        color: var(--text);
+        resize: vertical;
+        min-height: 52px;
+        max-height: 140px;
+        font-size: 13px;
+      }
+
+      textarea:focus-visible {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.4);
+      }
+
+      button {
+        border-radius: 10px;
+        padding: 0 14px;
+        border: none;
+        background: linear-gradient(
+          135deg,
+          #22c55e,
+          #16a34a
+        ); /* green gradient */
+        color: #ecfdf5;
+        font-weight: 500;
+        font-size: 13px;
+        cursor: pointer;
+        white-space: nowrap;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+      }
+
+      button.secondary {
+        background: rgba(15, 23, 42, 0.8);
+        border: 1px solid var(--border);
+        color: var(--muted);
+      }
+
+      button:disabled {
+        opacity: 0.7;
+        cursor: default;
+      }
+
+      .params-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 8px;
+        font-size: 12px;
+      }
+
+      .param-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .param-row label {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .param-inputs {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        min-width: 0;
+      }
+
+      .param-inputs input[type="range"] {
+        width: 110px;
+      }
+
+      .param-inputs input[type="number"] {
+        width: 64px;
+        border-radius: 7px;
+        border: 1px solid var(--border);
+        padding: 3px 5px;
+        background: rgba(15, 23, 42, 0.95);
+        color: var(--text);
+        font-size: 11px;
+      }
+
+      .status-bar {
+        margin-top: 4px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      .status-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        margin-right: 4px;
+        background: #22c55e;
+        box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.22);
+      }
+
+      .status-dot.offline {
+        background: var(--danger);
+        box-shadow: 0 0 0 4px rgba(248, 113, 113, 0.22);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header class="app-header">
+        <div>
+          <div class="title">本地 RAG + Qwen3 对话</div>
+          <div class="subtitle">
+            后端：`scripts/web_server.py` + `scripts/rag_chat.py`（基于教材 / Triton /
+            tilelang 文档）
+          </div>
+        </div>
+        <div class="badge">127.0.0.1:8000 /chat</div>
+      </header>
+
+      <div class="main">
+        <section class="card">
+          <div class="card-header">
+            <div class="card-title">对话</div>
+          </div>
+          <div class="card-body">
+            <div id="chat-window" class="chat-window"></div>
+
+            <div class="chat-input-area">
+              <div class="input-row">
+                <textarea
+                  id="input"
+                  placeholder="输入你要问的问题，例如：我要用 Triton 给大模型做推理加速，应该怎么入手？"
+                ></textarea>
+                <button id="send-btn">
+                  发送
+                  <span id="send-spinner" style="display: none">⏳</span>
+                </button>
+              </div>
+              <div class="status-bar">
+                <div id="status-text">
+                  <span id="status-dot" class="status-dot"></span>
+                  <span>等待输入</span>
+                </div>
+                <button id="clear-btn" class="secondary">清空对话</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="card">
+          <div class="card-header">
+            <div class="card-title">参数设置</div>
+          </div>
+          <div class="card-body">
+            <div class="params-grid">
+              <div class="param-row">
+                <label for="top-k">RAG 检索 Top‑K</label>
+                <div class="param-inputs">
+                  <input
+                    type="range"
+                    id="top-k"
+                    min="1"
+                    max="16"
+                    value="8"
+                  />
+                  <input type="number" id="top-k-num" min="1" max="16" value="8" />
+                </div>
+              </div>
+
+              <div class="param-row">
+                <label for="temperature">Temperature</label>
+                <div class="param-inputs">
+                  <input
+                    type="range"
+                    id="temperature"
+                    min="0"
+                    max="20"
+                    value="7"
+                  />
+                  <input
+                    type="number"
+                    id="temperature-num"
+                    min="0"
+                    max="2"
+                    step="0.1"
+                    value="0.7"
+                  />
+                </div>
+              </div>
+
+              <div class="param-row">
+                <label for="top-p">Top‑p</label>
+                <div class="param-inputs">
+                  <input type="range" id="top-p" min="50" max="100" value="90" />
+                  <input
+                    type="number"
+                    id="top-p-num"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value="0.9"
+                  />
+                </div>
+              </div>
+
+              <div class="param-row">
+                <label for="max-tokens">Max new tokens</label>
+                <div class="param-inputs">
+                  <input
+                    type="range"
+                    id="max-tokens"
+                    min="128"
+                    max="2048"
+                    step="64"
+                    value="512"
+                  />
+                  <input
+                    type="number"
+                    id="max-tokens-num"
+                    min="64"
+                    max="4096"
+                    step="64"
+                    value="512"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+
+    <script>
+      const API_URL = "http://127.0.0.1:8000/chat";
+
+      const chatWindow = document.getElementById("chat-window");
+      const inputEl = document.getElementById("input");
+      const sendBtn = document.getElementById("send-btn");
+      const sendSpinner = document.getElementById("send-spinner");
+      const clearBtn = document.getElementById("clear-btn");
+      const statusText = document.getElementById("status-text");
+      const statusDot = document.getElementById("status-dot");
+
+      const topK = document.getElementById("top-k");
+      const topKNum = document.getElementById("top-k-num");
+      const temp = document.getElementById("temperature");
+      const tempNum = document.getElementById("temperature-num");
+      const topP = document.getElementById("top-p");
+      const topPNum = document.getElementById("top-p-num");
+      const maxTok = document.getElementById("max-tokens");
+      const maxTokNum = document.getElementById("max-tokens-num");
+
+      let history = [];
+      let busy = false;
+
+      function syncRangeAndNumber(rangeEl, numEl, transformRangeToNum, transformNumToRange) {
+        rangeEl.addEventListener("input", () => {
+          const v = transformRangeToNum(rangeEl.valueAsNumber);
+          numEl.value = v.toFixed(2).replace(/\.00$/, "");
+        });
+        numEl.addEventListener("change", () => {
+          const v = parseFloat(numEl.value);
+          const r = transformNumToRange(v);
+          rangeEl.value = String(r);
+        });
+      }
+
+      // top_k: 1..16
+      topK.addEventListener("input", () => {
+        topKNum.value = topK.value;
+      });
+      topKNum.addEventListener("change", () => {
+        let v = parseInt(topKNum.value || "8", 10);
+        v = Math.min(16, Math.max(1, v));
+        topKNum.value = v;
+        topK.value = String(v);
+      });
+
+      // temperature: slider 0..20 -> 0..2.0
+      syncRangeAndNumber(
+        temp,
+        tempNum,
+        (r) => r / 10,
+        (v) => Math.round(Math.min(2, Math.max(0, v)) * 10)
+      );
+
+      // top_p: slider 50..100 -> 0.5..1.0
+      syncRangeAndNumber(
+        topP,
+        topPNum,
+        (r) => r / 100,
+        (v) => Math.round(Math.min(1, Math.max(0.5, v)) * 100)
+      );
+
+      // max tokens: slider 128..2048 (step 64)
+      maxTok.addEventListener("input", () => {
+        maxTokNum.value = maxTok.value;
+      });
+      maxTokNum.addEventListener("change", () => {
+        let v = parseInt(maxTokNum.value || "512", 10);
+        v = Math.max(64, Math.min(4096, v));
+        maxTokNum.value = v;
+        let clamped = Math.max(128, Math.min(2048, v));
+        maxTok.value = String(clamped);
+      });
+
+      function appendMessage(role, content) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "message";
+
+        const roleBadge = document.createElement("div");
+        roleBadge.className =
+          "message-role " + (role === "user" ? "role-user" : "role-assistant");
+        roleBadge.textContent = role === "user" ? "你" : "助手";
+
+        const body = document.createElement("div");
+        body.className = "message-content";
+        body.textContent = content;
+
+        wrapper.appendChild(roleBadge);
+        wrapper.appendChild(body);
+        chatWindow.appendChild(wrapper);
+        chatWindow.scrollTop = chatWindow.scrollHeight;
+      }
+
+      function setBusy(flag, message) {
+        busy = flag;
+        sendBtn.disabled = flag;
+        sendSpinner.style.display = flag ? "inline" : "none";
+        statusDot.classList.toggle("offline", flag);
+        statusText.querySelector("span:nth-child(2)").textContent =
+          message || (flag ? "推理中..." : "等待输入");
+      }
+
+      async function sendMessage() {
+        if (busy) return;
+        const text = inputEl.value.trim();
+        if (!text) return;
+
+        appendMessage("user", text);
+        history.push({ role: "user", content: text });
+        inputEl.value = "";
+
+        setBusy(true, "向本地后端发送请求...");
+
+        const payload = {
+          history,
+          query: text,
+          top_k: parseInt(topKNum.value || "8", 10),
+          max_new_tokens: parseInt(maxTokNum.value || "512", 10),
+          temperature: parseFloat(tempNum.value || "0.7"),
+          top_p: parseFloat(topPNum.value || "0.9"),
+        };
+
+        try {
+          const res = await fetch(API_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+
+          if (!res.ok) {
+            throw new Error("HTTP " + res.status);
+          }
+
+          const data = await res.json();
+          const answer = data.answer || "[后端未返回 answer 字段]";
+          appendMessage("assistant", answer);
+          history.push({ role: "assistant", content: answer });
+          setBusy(false, "等待输入");
+        } catch (err) {
+          console.error(err);
+          appendMessage(
+            "assistant",
+            "调用本地后端失败，请确认已在终端运行：\n\n  uvicorn scripts.web_server:app --host 127.0.0.1 --port 8000\n\n错误：" +
+              err
+          );
+          setBusy(false, "后端连接失败");
+          statusDot.classList.add("offline");
+        }
+      }
+
+      sendBtn.addEventListener("click", sendMessage);
+      inputEl.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+          e.preventDefault();
+          sendMessage();
+        }
+      });
+
+      clearBtn.addEventListener("click", () => {
+        history = [];
+        chatWindow.innerHTML = "";
+        setBusy(false, "已清空，对话从头开始");
+      });
+
+      // 初始提示
+      appendMessage(
+        "assistant",
+        "你好，我是本地 Qwen3 + RAG 助手。\n\n" +
+          "右侧可以调整 RAG Top‑K、采样温度和最大生成长度。\n" +
+          "在终端中先运行：\n" +
+          "  uvicorn scripts.web_server:app --host 127.0.0.1 --port 8000\n\n" +
+          "然后在这里连续提问，例如：\n" +
+          "  - GPU 与 CPU 在并行处理上的区别？\n" +
+          "  - 如何用 Triton / tilelang 写一个简单的矩阵乘 kernel？"
+      );
+    </script>
+  </body>
+</html>
+

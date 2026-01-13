@@ -1,0 +1,13 @@
+torch
+torchvision
+torchaudio
+transformers
+modelscope
+sentence-transformers
+faiss-cpu
+requests
+beautifulsoup4
+lxml
+fastapi
+uvicorn
+
